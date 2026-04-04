@@ -45,6 +45,8 @@ All responses are JSON. All list endpoints return arrays of objects.
 import os
 import random
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
+load_dotenv()
 
 import pandas as pd
 import plotly.express as px
@@ -113,9 +115,9 @@ _MOCK_GENOMIC_VARIANTS = [
         "clinvar": "Likely Pathogenic",
     },
     {
-        "gene": "FTO",
-        "variant": "NC_000016.10:g.53786615A>T",
-        "condition": "Obesity Risk (modifiable by physical activity)",
+        "gene": "ADRB3",
+        "variant": "NC_000008.11:g.38282240C>T",
+        "condition": "Fat breakdown and thermogenesis regulation",
         "clinvar": "Likely Pathogenic",
     },
     {
@@ -201,7 +203,7 @@ def save_consent(patient_id: str, payload: dict) -> bool:
     """Returns True if saved to backend, False if saved locally only."""
     if _backend_available():
         result = _post(f"/patients/{patient_id}/consent", payload)
-        if result is not None:
+        if result is not None and result.get("success", False):
             st.cache_data.clear()
             return True
     # In mock mode, persist in session state so the provider view reflects changes
