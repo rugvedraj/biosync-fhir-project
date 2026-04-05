@@ -14,22 +14,10 @@ The app connects simulated wearable metrics with real-world genetic data to crea
 
 ---
 
-## How to Run Locally
+## How to View the API
 
-You'll need two terminal windows open to run the frontend and backend side-by-side. Before starting, make sure your `.env` file in the main folder has your `SUPABASE_URL`, `SUPABASE_KEY`, and `NCBI_API_KEY`.
+The backend API is officially deployed and accessible on Render. You can directly interact with the live FHIR endpoints by sending requests here:  
+**Live Endpoint:** [https://biosync-fhir-project-backend.onrender.com](https://biosync-fhir-project-backend.onrender.com)
 
-### 1. Start the Backend API (Terminal 1)
-Open a terminal, navigate into the backend folder, install the packages, and boot up the server:
-```bash
-cd backend
-pip3 install -r requirements.txt
-uvicorn main:app --reload --port 8000
-```
-
-### 2. Start the Frontend Dashboard (Terminal 2)
-Open a second terminal in the root project folder, install the Streamlit packages, and launch the dashboard:
-```bash
-pip3 install streamlit plotly pandas python-dotenv
-streamlit run app.py
-```
+If you have deployed the frontend natively to Streamlit Cloud, the Streamlit app will automatically proxy requests to this Render address if configured correctly in its secrets!
 *(The dashboard will automatically pop up in your browser at `http://localhost:8501`)*
