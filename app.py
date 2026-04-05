@@ -278,8 +278,15 @@ def provider_dashboard():
     st.caption("BioSync FHIR — Provider View")
 
     patients = get_patients()
-    selected_name = st.session_state.get("selected_patient", patients[0]["name"])
-    patient = next((p for p in patients if p["name"] == selected_name), patients[0])
+    if not patients:
+        st.warning("No patients available. Check the backend connection and try again.")
+        return
+    patient_ids = [p["id"] for p in patients]
+    selected_patient_id = st.session_state.get("selected_patient_id", patients[0]["id"])
+    if selected_patient_id not in patient_ids:
+        selected_patient_id = patients[0]["id"]
+        st.session_state["selected_patient_id"] = selected_patient_id
+    patient = next((p for p in patients if p["id"] == selected_patient_id), patients[0])
     patient_id = patient["id"]
 
     # Fetch consent before rendering anything — gates all sections below
@@ -292,11 +299,10 @@ def provider_dashboard():
     df = get_wearable_data(patient_id) if (steps_shared or hr_shared or sleep_shared) else None
 
     # ── Patient header ─────────────────────────────────────────────────────────
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Patient",      patient["name"])
-    c2.metric("Patient ID",   patient["id"])
-    c3.metric("Age",          patient["age"])
-    c4.metric("Last Updated", patient["last_updated"])
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Patient ID",   patient["id"])
+    c2.metric("Age",          patient["age"])
+    c3.metric("Last Updated", patient["last_updated"])
 
     st.divider()
 
@@ -390,25 +396,37 @@ def main():
         role = st.radio("View As", ["Patient", "Provider"], index=0)
 
         patients = get_patients()
+        if not patients:
+            st.warning("No patients available.")
+            st.caption("Set `BACKEND_URL` to a reachable FastAPI backend and refresh.")
+            st.divider()
+            if _backend_available():
+                st.warning("● Backend configured but unavailable")
+            else:
+                st.warning("● Backend not configured")
+            return
         st.divider()
 
         if role == "Patient":
             st.markdown("**Demo: Select Patient**")
-            patient_names = [p["name"] for p in patients]
-            selected_patient_name = st.selectbox(
+            patient_ids = [p["id"] for p in patients]
+            current_selection = st.session_state.get("patient_view_select", patient_ids[0])
+            if current_selection not in patient_ids:
+                st.session_state["patient_view_select"] = patient_ids[0]
+            selected_patient_id = st.selectbox(
                 "Viewing as",
-                patient_names,
+                patient_ids,
                 key="patient_view_select",
                 label_visibility="collapsed",
             )
-            active_patient = next(p for p in patients if p["name"] == selected_patient_name)
+            active_patient = next((p for p in patients if p["id"] == selected_patient_id), patients[0])
 
         else:
             st.markdown("**Patient List**")
             for p in patients:
-                label = f"{p['name']}  ·  {p['id']}"
+                label = p["id"]
                 if st.button(label, key=f"btn_{p['id']}", use_container_width=True):
-                    st.session_state["selected_patient"] = p["name"]
+                    st.session_state["selected_patient_id"] = p["id"]
             active_patient = None  # provider_dashboard() handles its own selection
 
         st.divider()

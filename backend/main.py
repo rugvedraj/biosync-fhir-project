@@ -51,14 +51,16 @@ if SUPABASE_URL and SUPABASE_KEY and "replace_with" not in SUPABASE_URL:
     except Exception as e:
         print(f"Failed to initialize Supabase: {e}")
 
-# Static patient database entries mapped to Kaggle datasets
+# Static patient records mapped to Kaggle datasets.
+# The source Fitbit data is anonymized, so these demo records should only use
+# participant IDs rather than invented human names.
 DATABASE_PATIENTS = [
-    {"id": "P001", "name": "Jane Doe",     "age": 52, "last_updated": "2024-03-31"},
-    {"id": "P002", "name": "John Smith",   "age": 45, "last_updated": "2024-03-30"},
-    {"id": "P003", "name": "Maria Garcia", "age": 61, "last_updated": "2024-03-29"},
-    {"id": "P004", "name": "Patient P004", "age": 39, "last_updated": "2024-03-28"},
-    {"id": "P005", "name": "Patient P005", "age": 55, "last_updated": "2024-03-27"},
-    {"id": "P006", "name": "Patient P006", "age": 47, "last_updated": "2024-03-26"},
+    {"id": "P001", "name": "P001", "age": 52, "last_updated": "2024-03-31"},
+    {"id": "P002", "name": "P002", "age": 45, "last_updated": "2024-03-30"},
+    {"id": "P003", "name": "P003", "age": 61, "last_updated": "2024-03-29"},
+    {"id": "P004", "name": "P004", "age": 39, "last_updated": "2024-03-28"},
+    {"id": "P005", "name": "P005", "age": 55, "last_updated": "2024-03-27"},
+    {"id": "P006", "name": "P006", "age": 47, "last_updated": "2024-03-26"},
 ]
 
 class ConsentPayload(BaseModel):
