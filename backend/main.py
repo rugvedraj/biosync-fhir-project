@@ -16,12 +16,12 @@ CREATE TABLE consent (
 
 import os
 import pandas as pd
+import pandas as pd
 from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from supabase import create_client, Client
 from dotenv import load_dotenv
-
-import pandas as pd
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 
 from clinvar_client import fetch_clinvar_significance
