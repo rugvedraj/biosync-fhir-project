@@ -76,7 +76,7 @@ def _backend_available() -> bool:
 def _get(path: str):
     """GET from backend; returns parsed JSON or None on any failure."""
     try:
-        resp = _requests.get(f"{_BACKEND_URL}{path}", timeout=5)
+        resp = _requests.get(f"{_BACKEND_URL}{path}", timeout=30)
         resp.raise_for_status()
         return resp.json()
     except Exception:
@@ -86,77 +86,16 @@ def _get(path: str):
 def _post(path: str, payload: dict):
     """POST to backend; returns parsed JSON or None on any failure."""
     try:
-        resp = _requests.post(f"{_BACKEND_URL}{path}", json=payload, timeout=5)
+        resp = _requests.post(f"{_BACKEND_URL}{path}", json=payload, timeout=30)
         resp.raise_for_status()
         return resp.json()
     except Exception:
         return None
 
 
-# ── Mock / fallback data ───────────────────────────────────────────────────────
-
-_MOCK_PATIENTS = [
-    {"id": "P001", "name": "Jane Doe",     "age": 52, "last_updated": "2024-03-31"},
-    {"id": "P002", "name": "John Smith",   "age": 45, "last_updated": "2024-03-30"},
-    {"id": "P003", "name": "Maria Garcia", "age": 61, "last_updated": "2024-03-29"},
-]
-
-_MOCK_GENOMIC_VARIANTS = [
-    {
-        "gene": "APOE",
-        "variant": "NC_000019.10:g.44908822C>T",
-        "condition": "Cardiovascular / Alzheimer's Risk",
-        "clinvar": "Pathogenic",
-    },
-    {
-        "gene": "PCSK9",
-        "variant": "NC_000001.11:g.55039974G>A",
-        "condition": "LDL-C / Coronary Artery Disease",
-        "clinvar": "Likely Pathogenic",
-    },
-    {
-        "gene": "ADRB3",
-        "variant": "NC_000008.11:g.38282240C>T",
-        "condition": "Fat breakdown and thermogenesis regulation",
-        "clinvar": "Likely Pathogenic",
-    },
-    {
-        "gene": "TCF7L2",
-        "variant": "NC_000010.11:g.112998590C>T",
-        "condition": "Type 2 Diabetes Risk",
-        "clinvar": "Uncertain Significance",
-    },
-]
-
-_MOCK_CONSENT_DEFAULT = {
-    "steps": True,
-    "heart_rate": True,
-    "sleep": False,
-    "genomic": True,
-}
-
-_MOCK_SEED_BY_PATIENT = {"P001": 42, "P002": 7, "P003": 99}
-
-
-def _mock_wearable(patient_id: str) -> list:
-    seed = _MOCK_SEED_BY_PATIENT.get(patient_id, 42)
-    random.seed(seed)
-    dates = [datetime(2024, 3, 1) + timedelta(days=i) for i in range(30)]
-    return [
-        {
-            "date": str(d.date()),
-            "steps": random.randint(3500, 13000),
-            "heart_rate_avg": random.randint(60, 88),
-            "sleep_hours": round(random.uniform(4.5, 8.5), 1),
-            "active_minutes": random.randint(15, 95),
-        }
-        for d in dates
-    ]
-
-
 # ── Data access layer ──────────────────────────────────────────────────────────
-# Each function tries the backend first. If unavailable or erroring, falls back
-# to synthetic mock data so the UI always renders.
+# Brutally honest API fetch architecture: Failure physically triggers an error
+# instead of simulating synthetic data arrays.
 
 @st.cache_data(ttl=60)
 def get_patients() -> list:
@@ -164,7 +103,8 @@ def get_patients() -> list:
         data = _get("/patients")
         if data is not None:
             return data
-    return _MOCK_PATIENTS
+    st.error("Backend connection failed. Cannot load patients.")
+    return []
 
 
 @st.cache_data(ttl=60)
@@ -173,11 +113,11 @@ def get_wearable_data(patient_id: str) -> pd.DataFrame:
         data = _get(f"/patients/{patient_id}/wearable")
         if data is not None:
             df = pd.DataFrame(data)
-            df["date"] = pd.to_datetime(df["date"])
+            if not df.empty and "date" in df.columns:
+                df["date"] = pd.to_datetime(df["date"])
             return df
-    return pd.DataFrame(_mock_wearable(patient_id)).assign(
-        date=lambda df: pd.to_datetime(df["date"])
-    )
+    st.error("Backend connection failed. Cannot load wearable data.")
+    return pd.DataFrame()
 
 
 @st.cache_data(ttl=60)
@@ -186,28 +126,25 @@ def get_genomic_variants(patient_id: str) -> list:
         data = _get(f"/patients/{patient_id}/genomic-variants")
         if data is not None:
             return data
-    return _MOCK_GENOMIC_VARIANTS
+    st.error("Backend connection failed. Cannot load genomic variants.")
+    return []
 
 
 def get_consent(patient_id: str) -> dict:
-    # Not cached — must re-read session state every render so saved changes reflect immediately
     if _backend_available():
         data = _get(f"/patients/{patient_id}/consent")
         if data is not None:
             return data
-    session_key = f"consent_state_{patient_id}"
-    return st.session_state.get(session_key, _MOCK_CONSENT_DEFAULT.copy())
+    return {"steps": False, "heart_rate": False, "sleep": False, "genomic": False}
 
 
 def save_consent(patient_id: str, payload: dict) -> bool:
-    """Returns True if saved to backend, False if saved locally only."""
+    """Returns True if saved to backend, False if network fails."""
     if _backend_available():
         result = _post(f"/patients/{patient_id}/consent", payload)
         if result is not None and result.get("success", False):
             st.cache_data.clear()
             return True
-    # In mock mode, persist in session state so the provider view reflects changes
-    st.session_state[f"consent_state_{patient_id}"] = payload
     return False
 
 

@@ -51,7 +51,8 @@ if SUPABASE_URL and SUPABASE_KEY and "replace_with" not in SUPABASE_URL:
     except Exception as e:
         print(f"Failed to initialize Supabase: {e}")
 
-_MOCK_PATIENTS = [
+# Static patient database entries mapped to Kaggle datasets
+DATABASE_PATIENTS = [
     {"id": "P001", "name": "Jane Doe",     "age": 52, "last_updated": "2024-03-31"},
     {"id": "P002", "name": "John Smith",   "age": 45, "last_updated": "2024-03-30"},
     {"id": "P003", "name": "Maria Garcia", "age": 61, "last_updated": "2024-03-29"},
@@ -65,7 +66,7 @@ class ConsentPayload(BaseModel):
 
 @app.get("/patients")
 def get_patients():
-    return _MOCK_PATIENTS
+    return DATABASE_PATIENTS
 
 @app.get("/patients/{patient_id}/wearable")
 def get_wearable(patient_id: str):
@@ -75,7 +76,7 @@ def get_wearable(patient_id: str):
     """
     activity_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'dailyActivity_merged.csv')
     sleep_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'sleepDay_merged.csv')
-    hr_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'heartrate_seconds_merged.csv')
+    hr_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'heartrate_daily_avg.csv')
 
     if not os.path.exists(activity_path) or not os.path.exists(sleep_path) or not os.path.exists(hr_path):
         raise HTTPException(status_code=404, detail="Kaggle data files not found in /data directory.")
@@ -84,7 +85,8 @@ def get_wearable(patient_id: str):
         act_df = pd.read_csv(activity_path)
         slp_df = pd.read_csv(sleep_path)
         
-        unique_ids = act_df["Id"].unique()
+        # Hardcoded to patients present in both Activity and HR datasets
+        unique_ids = [2022484408, 2026352035, 2347167796, 4020332650, 4388161847]
         # Deterministic hash to map our patient_ids (e.g. 'P001') to a real Kaggle user
         kaggle_id = unique_ids[sum(ord(c) for c in patient_id) % len(unique_ids)]
         
@@ -92,9 +94,8 @@ def get_wearable(patient_id: str):
         p_slp = slp_df[slp_df["Id"] == kaggle_id].copy()
         
         hr_df = pd.read_csv(hr_path)
-        p_hr = hr_df[hr_df["Id"] == kaggle_id].copy()
-        p_hr["Date"] = pd.to_datetime(p_hr["Time"]).dt.date
-        p_hr_daily = p_hr.groupby("Date")["Value"].mean().round().reset_index()
+        p_hr_daily = hr_df[hr_df["Id"] == kaggle_id].copy()
+        p_hr_daily["Date"] = pd.to_datetime(p_hr_daily["Date"]).dt.date
         
         p_act["ActivityDate"] = pd.to_datetime(p_act["ActivityDate"]).dt.date
         p_slp["SleepDay"] = pd.to_datetime(p_slp["SleepDay"]).dt.date
