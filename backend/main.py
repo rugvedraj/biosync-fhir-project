@@ -16,16 +16,29 @@ CREATE TABLE consent (
 
 import os
 import random
-import requests
 from datetime import datetime, timedelta
 from fastapi import FastAPI
 from pydantic import BaseModel
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
+import pandas as pd
+from fastapi.middleware.cors import CORSMiddleware
+
+from clinvar_client import fetch_clinvar_significance
+from genomics_fhir import build_variant_observation
+
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -57,6 +70,56 @@ def get_patients():
 
 @app.get("/patients/{patient_id}/wearable")
 def get_wearable(patient_id: str):
+    """
+    Parses real Kaggle Fitbit datasets using pandas.
+    Falls back to synthetic generation if CSVs aren't properly mounted in the data/ folder.
+    """
+    activity_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'dailyActivity_merged.csv')
+    sleep_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'sleepDay_merged.csv')
+
+    # Kaggle Real Data Parsing Pipeline
+    if os.path.exists(activity_path) and os.path.exists(sleep_path):
+        try:
+            act_df = pd.read_csv(activity_path)
+            slp_df = pd.read_csv(sleep_path)
+            
+            unique_ids = act_df["Id"].unique()
+            # Deterministic hash to map our patient_ids (e.g. 'P001') to a real Kaggle user
+            kaggle_id = unique_ids[sum(ord(c) for c in patient_id) % len(unique_ids)]
+            
+            p_act = act_df[act_df["Id"] == kaggle_id].copy()
+            p_slp = slp_df[slp_df["Id"] == kaggle_id].copy()
+            
+            p_act["ActivityDate"] = pd.to_datetime(p_act["ActivityDate"]).dt.date
+            p_slp["SleepDay"] = pd.to_datetime(p_slp["SleepDay"]).dt.date
+            
+            merged = pd.merge(p_act, p_slp, left_on="ActivityDate", right_on="SleepDay", how="left")
+            merged = merged.sort_values(by="ActivityDate", ascending=False).head(30)
+            
+            results = []
+            for _, row in merged.iterrows():
+                # Kaggle total asleep is natively in minutes
+                sleep_hrs = round(row["TotalMinutesAsleep"] / 60, 1) if pd.notna(row["TotalMinutesAsleep"]) else round(random.uniform(5.0, 8.5), 1)
+                active_min = row["VeryActiveMinutes"] + row["FairlyActiveMinutes"] if pd.notna(row["VeryActiveMinutes"]) else random.randint(20, 80)
+                
+                # Simulating HR safely as heartrate_seconds_merged.csv is too heavy for single endpoint queries
+                random.seed(f"{patient_id}_{row['ActivityDate']}")
+                
+                results.append({
+                    "date": str(row["ActivityDate"]),
+                    "steps": int(row["TotalSteps"]) if pd.notna(row["TotalSteps"]) else random.randint(3000, 10000),
+                    "heart_rate_avg": random.randint(60, 88),
+                    "sleep_hours": sleep_hrs,
+                    "active_minutes": int(active_min)
+                })
+            
+            if results:
+                return results
+                
+        except Exception as e:
+            print(f"Error parsing Kaggle datasets, falling back dynamically: {e}")
+
+    # Synthetic fallback logic if data/ files are entirely missing
     random.seed(patient_id)
     dates = [datetime.today() - timedelta(days=i) for i in range(30)]
     dates.reverse()
@@ -72,42 +135,35 @@ def get_wearable(patient_id: str):
     ]
 
 @app.get("/patients/{patient_id}/genomic-variants")
-def get_genomic_variants(patient_id: str):
+async def get_genomic_variants(patient_id: str):
     """
-    Fetches the patient's genomic variants. Adheres to the requirement of 
-    specifically targeting the ADRB3 gene and querying the ClinVar API.
+    Fetches the patient's 4 genomic variants natively from NCBI clinvar logic.
     """
-    clinvar_result = "Likely Pathogenic"
-    
-    # Query ClinVar API for ADRB3 using the NCBI API key
-    if NCBI_API_KEY:
-        try:
-            # We look up ADRB3 pathogenic variants to prove the API connects
-            url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=clinvar&term=ADRB3[gene]+AND+pathogenic[clinsig]&retmode=json&api_key={NCBI_API_KEY}"
-            resp = requests.get(url, timeout=5)
-            if resp.status_code == 200:
-                data = resp.json()
-                ids = data.get("esearchresult", {}).get("idlist", [])
-                if ids:
-                    clinvar_result = "Pathogenic (Verified via ClinVar)"
-        except Exception as e:
-            print(f"Clinvar API fetch failed: {e}")
-
-    variants = [
-        {
-            "gene": "ADRB3",
-            "variant": "NC_000008.11:g.38282240C>T",
-            "condition": "Fat breakdown and thermogenesis regulation",
-            "clinvar": clinvar_result,
-        },
-        {
-            "gene": "APOE",
-            "variant": "NC_000019.10:g.44908822C>T",
-            "condition": "Cardiovascular / Alzheimer's Risk",
-            "clinvar": "Pathogenic",
-        }
+    targets = [
+        {"gene": "ADRB3", "hgvs": "NM_000025.3(ADRB3):c.190T>C", "ref": "NM_000025.3", "clinvar_id": "67036", "condition": "Fat breakdown and thermogenesis regulation"},
+        {"gene": "APOE", "hgvs": "NM_000041.4(APOE):c.388T>C", "ref": "NM_000041.4", "clinvar_id": "17864", "condition": "Cardiovascular / Alzheimer's Risk"},
+        {"gene": "PCSK9", "hgvs": "NM_174936.4(PCSK9):c.137G>T", "ref": "NM_174936.4", "clinvar_id": "2878", "condition": "Hypercholesterolemia (LDL Risk)"},
+        {"gene": "TCF7L2", "hgvs": "NM_001367943.1(TCF7L2):c.450+33966C>T", "ref": "NM_001367943.1", "clinvar_id": "7413", "condition": "Type 2 Diabetes Risk"}
     ]
-    return variants
+    
+    variants_ui = []
+    
+    for t in targets:
+        # Dynamically execute lookup via NCBI APIs
+        sig = await fetch_clinvar_significance(t["hgvs"])
+        
+        # Structure payload utilizing teammate's FHIR standard constructor
+        fhir_obj = build_variant_observation(patient_id, t["gene"], t["hgvs"], t["ref"], sig, t["clinvar_id"])
+        print(f"Generated Backend FHIR {t['gene']}: {fhir_obj['id']}")
+        
+        variants_ui.append({
+            "gene": t["gene"],
+            "variant": t["hgvs"],
+            "condition": t["condition"],
+            "clinvar": sig,
+        })
+        
+    return variants_ui
 
 @app.get("/patients/{patient_id}/consent")
 def get_consent(patient_id: str):

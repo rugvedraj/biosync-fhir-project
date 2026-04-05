@@ -9,7 +9,7 @@ The app connects simulated wearable metrics with real-world genetic data to crea
 1. **Frontend (Streamlit)**: Contains two separate interfaces. The **Patient View** lets patients track their health data and manage privacy toggles (deciding what they want their doctor to see). The **Provider View** acts as the doctor's dashboard, hiding or showing data strictly based on those patient toggles.
 2. **Backend (FastAPI)**: Acts as the central data hub. 
    - It simulates realistic wearable data (steps, sleep, heart rate) on the fly.
-   - It connects directly to the official NCBI ClinVar API to pull real-world pathogenic data for the **ADRB3** gene.
+   - It connects directly to the official NCBI ClinVar API to pull real-world pathogenic data for the **ADRB3** and **APOE** genes, and structures the data internally using HL7 FHIR standards.
    - It connects to a Supabase cloud database to securely save and load the patient's privacy consent toggles.
 
 ---
