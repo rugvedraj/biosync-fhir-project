@@ -15,10 +15,9 @@ CREATE TABLE consent (
 """
 
 import os
-import random
+import pandas as pd
 from datetime import datetime, timedelta
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
@@ -71,68 +70,54 @@ def get_patients():
 @app.get("/patients/{patient_id}/wearable")
 def get_wearable(patient_id: str):
     """
-    Parses real Kaggle Fitbit datasets using pandas.
-    Falls back to synthetic generation if CSVs aren't properly mounted in the data/ folder.
+    Parses strictly authentic Kaggle Fitbit datasets using pandas.
+    Throws a 404 Exception if the dataset is missing or unreadable.
     """
     activity_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'dailyActivity_merged.csv')
     sleep_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'sleepDay_merged.csv')
 
-    # Kaggle Real Data Parsing Pipeline
-    if os.path.exists(activity_path) and os.path.exists(sleep_path):
-        try:
-            act_df = pd.read_csv(activity_path)
-            slp_df = pd.read_csv(sleep_path)
-            
-            unique_ids = act_df["Id"].unique()
-            # Deterministic hash to map our patient_ids (e.g. 'P001') to a real Kaggle user
-            kaggle_id = unique_ids[sum(ord(c) for c in patient_id) % len(unique_ids)]
-            
-            p_act = act_df[act_df["Id"] == kaggle_id].copy()
-            p_slp = slp_df[slp_df["Id"] == kaggle_id].copy()
-            
-            p_act["ActivityDate"] = pd.to_datetime(p_act["ActivityDate"]).dt.date
-            p_slp["SleepDay"] = pd.to_datetime(p_slp["SleepDay"]).dt.date
-            
-            merged = pd.merge(p_act, p_slp, left_on="ActivityDate", right_on="SleepDay", how="left")
-            merged = merged.sort_values(by="ActivityDate", ascending=False).head(30)
-            
-            results = []
-            for _, row in merged.iterrows():
-                # Kaggle total asleep is natively in minutes
-                sleep_hrs = round(row["TotalMinutesAsleep"] / 60, 1) if pd.notna(row["TotalMinutesAsleep"]) else round(random.uniform(5.0, 8.5), 1)
-                active_min = row["VeryActiveMinutes"] + row["FairlyActiveMinutes"] if pd.notna(row["VeryActiveMinutes"]) else random.randint(20, 80)
-                
-                # Simulating HR safely as heartrate_seconds_merged.csv is too heavy for single endpoint queries
-                random.seed(f"{patient_id}_{row['ActivityDate']}")
-                
-                results.append({
-                    "date": str(row["ActivityDate"]),
-                    "steps": int(row["TotalSteps"]) if pd.notna(row["TotalSteps"]) else random.randint(3000, 10000),
-                    "heart_rate_avg": random.randint(60, 88),
-                    "sleep_hours": sleep_hrs,
-                    "active_minutes": int(active_min)
-                })
-            
-            if results:
-                return results
-                
-        except Exception as e:
-            print(f"Error parsing Kaggle datasets, falling back dynamically: {e}")
+    if not os.path.exists(activity_path) or not os.path.exists(sleep_path):
+        raise HTTPException(status_code=404, detail="Kaggle data files not found in /data directory.")
 
-    # Synthetic fallback logic if data/ files are entirely missing
-    random.seed(patient_id)
-    dates = [datetime.today() - timedelta(days=i) for i in range(30)]
-    dates.reverse()
-    return [
-        {
-            "date": str(d.date()),
-            "steps": random.randint(3500, 13000),
-            "heart_rate_avg": random.randint(60, 88),
-            "sleep_hours": round(random.uniform(4.5, 8.5), 1),
-            "active_minutes": random.randint(15, 95),
-        }
-        for d in dates
-    ]
+    try:
+        act_df = pd.read_csv(activity_path)
+        slp_df = pd.read_csv(sleep_path)
+        
+        unique_ids = act_df["Id"].unique()
+        # Deterministic hash to map our patient_ids (e.g. 'P001') to a real Kaggle user
+        kaggle_id = unique_ids[sum(ord(c) for c in patient_id) % len(unique_ids)]
+        
+        p_act = act_df[act_df["Id"] == kaggle_id].copy()
+        p_slp = slp_df[slp_df["Id"] == kaggle_id].copy()
+        
+        p_act["ActivityDate"] = pd.to_datetime(p_act["ActivityDate"]).dt.date
+        p_slp["SleepDay"] = pd.to_datetime(p_slp["SleepDay"]).dt.date
+        
+        merged = pd.merge(p_act, p_slp, left_on="ActivityDate", right_on="SleepDay", how="left")
+        merged = merged.sort_values(by="ActivityDate", ascending=False).head(30)
+        
+        results = []
+        for _, row in merged.iterrows():
+            # Kaggle total asleep is natively in minutes
+            sleep_hrs = round(row["TotalMinutesAsleep"] / 60, 1) if pd.notna(row["TotalMinutesAsleep"]) else 0.0
+            active_min = row["VeryActiveMinutes"] + row["FairlyActiveMinutes"] if pd.notna(row["VeryActiveMinutes"]) else 0
+            
+            # Since Kaggle Fitbit dataset doesn't contain HR natively without heartrate_seconds_merged.csv
+            hr = 0
+            steps = int(row["TotalSteps"]) if pd.notna(row["TotalSteps"]) else 0
+            
+            results.append({
+                "date": str(row["ActivityDate"]),
+                "steps": steps,
+                "heart_rate_avg": hr,
+                "sleep_hours": sleep_hrs,
+                "active_minutes": int(active_min)
+            })
+        
+        return results
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error parsing dataframe: {str(e)}")
 
 @app.get("/patients/{patient_id}/genomic-variants")
 async def get_genomic_variants(patient_id: str):
