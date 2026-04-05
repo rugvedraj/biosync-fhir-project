@@ -56,6 +56,9 @@ DATABASE_PATIENTS = [
     {"id": "P001", "name": "Jane Doe",     "age": 52, "last_updated": "2024-03-31"},
     {"id": "P002", "name": "John Smith",   "age": 45, "last_updated": "2024-03-30"},
     {"id": "P003", "name": "Maria Garcia", "age": 61, "last_updated": "2024-03-29"},
+    {"id": "P004", "name": "Patient P004", "age": 39, "last_updated": "2024-03-28"},
+    {"id": "P005", "name": "Patient P005", "age": 55, "last_updated": "2024-03-27"},
+    {"id": "P006", "name": "Patient P006", "age": 47, "last_updated": "2024-03-26"},
 ]
 
 class ConsentPayload(BaseModel):
@@ -85,10 +88,17 @@ def get_wearable(patient_id: str):
         act_df = pd.read_csv(activity_path)
         slp_df = pd.read_csv(sleep_path)
         
-        # Hardcoded to patients present in both Activity and HR datasets
-        unique_ids = [2022484408, 2026352035, 2347167796, 4020332650, 4388161847]
-        # Deterministic hash to map our patient_ids (e.g. 'P001') to a real Kaggle user
-        kaggle_id = unique_ids[sum(ord(c) for c in patient_id) % len(unique_ids)]
+        # Hardcoded to patients with >30 days of flawless heart rate & step data
+        mapping = {
+            "P001": 2022484408, 
+            "P002": 4558609924, 
+            "P003": 5553957443,
+            "P004": 6962181067,
+            "P005": 8877689391,
+            "P006": 4388161847
+        }
+        # Explicit mapping ensures 100% density arrays
+        kaggle_id = mapping.get(patient_id, 2022484408)
         
         p_act = act_df[act_df["Id"] == kaggle_id].copy()
         p_slp = slp_df[slp_df["Id"] == kaggle_id].copy()
