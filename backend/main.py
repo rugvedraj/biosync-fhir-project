@@ -88,17 +88,17 @@ def get_wearable(patient_id: str):
         act_df = pd.read_csv(activity_path)
         slp_df = pd.read_csv(sleep_path)
         
-        # Hardcoded to patients with >30 days of flawless heart rate & step data
+        # Hardcoded to patients with strictly >15 days of concurrent sleep & HR data
         mapping = {
-            "P001": 2022484408, 
-            "P002": 4558609924, 
-            "P003": 5553957443,
-            "P004": 6962181067,
-            "P005": 8877689391,
-            "P006": 4388161847
+            "P001": 5553957443, 
+            "P002": 6962181067, 
+            "P003": 4388161847,
+            "P004": 5577150313,
+            "P005": 6117666160,
+            "P006": 8792009665
         }
         # Explicit mapping ensures 100% density arrays
-        kaggle_id = mapping.get(patient_id, 2022484408)
+        kaggle_id = mapping.get(patient_id, 5553957443)
         
         p_act = act_df[act_df["Id"] == kaggle_id].copy()
         p_slp = slp_df[slp_df["Id"] == kaggle_id].copy()
