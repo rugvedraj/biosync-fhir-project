@@ -75,8 +75,9 @@ def get_wearable(patient_id: str):
     """
     activity_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'dailyActivity_merged.csv')
     sleep_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'sleepDay_merged.csv')
+    hr_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'heartrate_seconds_merged.csv')
 
-    if not os.path.exists(activity_path) or not os.path.exists(sleep_path):
+    if not os.path.exists(activity_path) or not os.path.exists(sleep_path) or not os.path.exists(hr_path):
         raise HTTPException(status_code=404, detail="Kaggle data files not found in /data directory.")
 
     try:
@@ -90,10 +91,16 @@ def get_wearable(patient_id: str):
         p_act = act_df[act_df["Id"] == kaggle_id].copy()
         p_slp = slp_df[slp_df["Id"] == kaggle_id].copy()
         
+        hr_df = pd.read_csv(hr_path)
+        p_hr = hr_df[hr_df["Id"] == kaggle_id].copy()
+        p_hr["Date"] = pd.to_datetime(p_hr["Time"]).dt.date
+        p_hr_daily = p_hr.groupby("Date")["Value"].mean().round().reset_index()
+        
         p_act["ActivityDate"] = pd.to_datetime(p_act["ActivityDate"]).dt.date
         p_slp["SleepDay"] = pd.to_datetime(p_slp["SleepDay"]).dt.date
         
         merged = pd.merge(p_act, p_slp, left_on="ActivityDate", right_on="SleepDay", how="left")
+        merged = pd.merge(merged, p_hr_daily, left_on="ActivityDate", right_on="Date", how="left")
         merged = merged.sort_values(by="ActivityDate", ascending=False).head(30)
         
         results = []
@@ -102,8 +109,8 @@ def get_wearable(patient_id: str):
             sleep_hrs = round(row["TotalMinutesAsleep"] / 60, 1) if pd.notna(row["TotalMinutesAsleep"]) else 0.0
             active_min = row["VeryActiveMinutes"] + row["FairlyActiveMinutes"] if pd.notna(row["VeryActiveMinutes"]) else 0
             
-            # Since Kaggle Fitbit dataset doesn't contain HR natively without heartrate_seconds_merged.csv
-            hr = 0
+            # Extract calculated daily heart rate average
+            hr = int(row["Value"]) if pd.notna(row["Value"]) else 0
             steps = int(row["TotalSteps"]) if pd.notna(row["TotalSteps"]) else 0
             
             results.append({
